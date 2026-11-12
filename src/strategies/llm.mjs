@@ -1,5 +1,5 @@
 // Optional BYOK strategy. Only the public game projection goes to the model.
-import { RULES } from './rules.mjs';
+import { RULES } from '../prompts/rules.mjs';
 export function modelInput(state) {
   const {game,playerId,actions,catalog,landmarks}=state;
   return {playerId,actions:actions.map((action,actionIndex)=>({actionIndex,...action})),catalog:catalog.map(({art,...card})=>card),landmarks,

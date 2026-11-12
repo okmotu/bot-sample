@@ -2,7 +2,7 @@ import { createInterface } from 'node:readline/promises';
 import { readFile,writeFile,rename,chmod,rm } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import { exchange } from './client.mjs';
-const sessionPath=fileURLToPath(new URL('./.aiyl-session.json',import.meta.url));
+const sessionPath=fileURLToPath(new URL('../../.aiyl-session.json',import.meta.url));
 export async function loadSession(interactive=true) {
   try {return JSON.parse(await readFile(sessionPath,'utf8'));}
   catch(error) {if(error.code!=='ENOENT')throw new Error('Не удалось прочитать файл сессии. Удалите его для нового подключения.');}

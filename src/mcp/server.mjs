@@ -1,6 +1,6 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
-import { ApiError } from './client.mjs';
+import { ApiError } from '../game/client.mjs';
 
 export function gameMcpServer(api) {
   const server=new McpServer({name:'aiyl-player',version:'0.1.0'});

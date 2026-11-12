@@ -1,8 +1,8 @@
 import { setTimeout as delay } from 'node:timers/promises';
-import { ApiError,client } from './client.mjs';
-import { loadSession,clearSession } from './session.mjs';
-import { chooseAction } from './strategy.mjs';
-import { chooseWithModel } from './llm.mjs';
+import { ApiError,client } from '../game/client.mjs';
+import { loadSession,clearSession } from '../game/session.mjs';
+import { chooseAction } from '../strategies/baseline.mjs';
+import { chooseWithModel } from '../strategies/llm.mjs';
 
 async function main() {
   const api=client(await loadSession());

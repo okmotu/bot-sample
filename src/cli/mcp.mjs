@@ -1,7 +1,7 @@
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
-import { loadSession } from './session.mjs';
-import { client } from './client.mjs';
-import { gameMcpServer } from './mcp-server.mjs';
+import { loadSession } from '../game/session.mjs';
+import { client } from '../game/client.mjs';
+import { gameMcpServer } from '../mcp/server.mjs';
 try {
   const session=await loadSession(false);
   await gameMcpServer(client(session)).connect(new StdioServerTransport());

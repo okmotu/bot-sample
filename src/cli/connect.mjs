@@ -1,5 +1,5 @@
-import { loadSession,clearSession } from './session.mjs';
-import { client,ApiError } from './client.mjs';
+import { loadSession,clearSession } from '../game/session.mjs';
+import { client,ApiError } from '../game/client.mjs';
 try {
   let session=await loadSession();
   try {await client(session).state();}

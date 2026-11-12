@@ -7,10 +7,10 @@
     "node": ">=24"
   },
   "scripts": {
-    "start": "node --env-file-if-exists=.env index.mjs",
-    "test": "node --test --test-isolation=none test.mjs",
-    "connect": "node connect.mjs",
-    "mcp": "node mcp.mjs"
+    "start": "node --env-file-if-exists=.env src/cli/play.mjs",
+    "test": "node --test --test-isolation=none tests/*.test.mjs",
+    "connect": "node src/cli/connect.mjs",
+    "mcp": "node src/cli/mcp.mjs"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "1.32.2",
