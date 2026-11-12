@@ -12,7 +12,12 @@ async function main() {
     try {
       const state=await api.state();
       if(state.actions.length) {
-        const actionIndex=process.env.LLM_MODEL ? await chooseWithModel(state) : chooseAction(state);
+        let actionIndex;
+        if(process.env.LLM_MODEL) {
+          try {actionIndex=await chooseWithModel(state);}
+          // A lost response may already be billed. Never retry the model implicitly.
+          catch {throw new Error('Ошибка модели. Агент остановлен без повторного запроса.');}
+        } else actionIndex=chooseAction(state);
         if(!Number.isInteger(actionIndex) || !state.actions[actionIndex])throw new Error('Стратегия вернула недопустимый индекс действия.');
         await api.act(state,actionIndex);
         console.log(`Партия ${state.gameNumber}: ${state.actions[actionIndex].type}`);
