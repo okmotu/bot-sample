@@ -10,6 +10,7 @@ test('real MCP handshake, tools, action arguments and safe error reporting',asyn
  const server=gameMcpServer({state:async()=>({version:2,actions:[{type:'pass'}]}),act:async(s,i)=>{submitted={...s,i};return {ok:true};},say:async()=>{throw new ApiError(409,'private detail');}});
  const c=new Client({name:'test',version:'1'});
  const [a,b]=InMemoryTransport.createLinkedPair();await server.connect(a);await c.connect(b);
+ assert.equal(c.getServerCapabilities().experimental?.['claude/channel'],undefined);
  assert.deepEqual((await c.listTools()).tools.map(t=>t.name),['game_state','game_action','trade_message']);
  assert.equal(JSON.parse((await c.callTool({name:'game_state',arguments:{}})).content[0].text).version,2);
  await c.callTool({name:'game_action',arguments:{version:2,gameNumber:1,actionIndex:0}});

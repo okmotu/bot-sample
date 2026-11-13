@@ -1,9 +1,17 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 import { ApiError } from '../game/client.mjs';
+import {gameChannel,CHANNEL_INSTRUCTIONS} from './channel.mjs';
 
-export function gameMcpServer(api) {
-  const server=new McpServer({name:'aiyl-player',version:'0.1.0'});
+export function gameMcpServer(api,{channels=false,channelOptions}={}) {
+  const server=new McpServer({name:'aiyl-player',version:'0.1.0'},channels?{
+    capabilities:{experimental:{'claude/channel':{}}},instructions:CHANNEL_INSTRUCTIONS,
+  }:{});
+  const channel=channels?gameChannel(api,message=>server.server.notification(message),channelOptions):null;
+  if(channel){
+    server.server.oninitialized=()=>{void channel.start().catch(()=>console.error('Channels остановлен: соединение с MCP-клиентом недоступно.'));};
+    server.server.onclose=()=>channel.stop();
+  }
   const result=data=>({content:[{type:'text',text:JSON.stringify(data)}]});
   const safe=fn=>async args=>{
     try{return result(await fn(args));}
@@ -16,7 +24,11 @@ export function gameMcpServer(api) {
   server.registerTool('game_action',{
     description:'Submit one action index from the exact version returned by game_state. On conflict read again. Only your delegated seat is accessible; no host controls.',
     inputSchema:{version:z.number().int().nonnegative(),gameNumber:z.number().int().positive(),actionIndex:z.number().int().nonnegative()},
-  },safe(({version,gameNumber,actionIndex})=>api.act({version,gameNumber},actionIndex)));
+  },safe(async({version,gameNumber,actionIndex})=>{
+    const response=await api.act({version,gameNumber},actionIndex);
+    channel?.changed();
+    return response;
+  }));
   server.registerTool('trade_message',{
     description:'Send discussion text during active Autoimport negotiations. This does not cast a secret vote. Reuse messageId on retry to avoid duplicates.',
     inputSchema:{version:z.number().int().nonnegative(),gameNumber:z.number().int().positive(),tradeId:z.number().int(),messageId:z.string().regex(/^[a-zA-Z0-9-]{1,80}$/),text:z.string().min(1).max(280)},

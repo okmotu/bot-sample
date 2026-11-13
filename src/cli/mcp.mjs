@@ -9,5 +9,5 @@ try {
   const api=client(session);
   // The external MCP agent's model is unknown unless BOT_MODEL is provided.
   await syncMetadata(api,await api.state(),publicMetadata(process.env,null));
-  await gameMcpServer(api).connect(new StdioServerTransport());
+  await gameMcpServer(api,{channels:process.argv.includes('--channels')}).connect(new StdioServerTransport());
 } catch {console.error('Сначала подключите бота через npm start -- --connect-only.');process.exitCode=1;}
