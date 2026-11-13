@@ -1,5 +1,6 @@
 // Optional BYOK strategy. Only the public game projection goes to the model.
 import { SYSTEM_PROMPT } from '../prompts/system.mjs';
+import {usageMetrics} from '../observer/journal.mjs';
 export function modelInput(state) {
   const {game,playerId,actions,catalog,landmarks}=state;
   return {playerId,actions:actions.map((action,actionIndex)=>({actionIndex,...action})),catalog:catalog.map(({art,...card})=>card),landmarks,
@@ -17,18 +18,19 @@ export async function chooseWithModel(state, options={}) {
   if(base.protocol!=='https:' && !(base.protocol==='http:' && ['localhost','127.0.0.1','[::1]'].includes(base.hostname)))throw new Error('LLM endpoint must use HTTPS or localhost.');
   if(!base.pathname.endsWith('/'))base.pathname+='/';
   const response=await (options.transport ?? fetch)(new URL('chat/completions',base),{
-    method:'POST',redirect:'error',signal:AbortSignal.timeout(45000),
+    method:'POST',redirect:'error',signal:options.signal?AbortSignal.any([options.signal,AbortSignal.timeout(45000)]):AbortSignal.timeout(45000),
     headers:{Authorization:`Bearer ${key}`,'Content-Type':'application/json'},
-    body:JSON.stringify({model,response_format:{type:'json_schema',json_schema:{name:'game_decision',strict:true,schema:{type:'object',properties:{actionIndex:{type:'integer'},reason:{type:'string'}},required:['actionIndex','reason'],additionalProperties:false}}},...(base.hostname==='openrouter.ai'?{max_tokens:500}:{max_completion_tokens:500}),
+    body:JSON.stringify({model,response_format:{type:'json_schema',json_schema:{name:'game_decision',strict:true,schema:{type:'object',properties:{actionIndex:{type:'integer'},alternativeIndex:{type:['integer','null']},reason:{type:'string'}},required:['actionIndex','alternativeIndex','reason'],additionalProperties:false}}},...(base.hostname==='openrouter.ai'?{max_tokens:500}:{max_completion_tokens:500}),
       ...(base.hostname==='openrouter.ai' ? {reasoning:{enabled:false},provider:{data_collection:'deny',require_parameters:true}} : {}),
       messages:[{role:'system',content:SYSTEM_PROMPT},
         {role:'user',content:JSON.stringify(modelInput(state))}]})});
   if(!response.ok)throw new Error(`LLM request failed (HTTP ${response.status}).`);
   const data=await response.json();
-  options.onUsage?.({promptTokens:data.usage?.prompt_tokens ?? null,completionTokens:data.usage?.completion_tokens ?? null,cost:data.usage?.cost ?? null});
+  options.onUsage?.(usageMetrics({promptTokens:data.usage?.prompt_tokens,completionTokens:data.usage?.completion_tokens,cachedTokens:data.usage?.prompt_tokens_details?.cached_tokens,cost:data.usage?.cost}));
   const decision=JSON.parse(data.choices?.[0]?.message?.content ?? '{}');
   const choice=decision.actionIndex;
   if(!Number.isInteger(choice) || !state.actions[choice])throw new Error('LLM returned invalid action index.');
-  options.onDecision?.({actionIndex:choice,reason:typeof decision.reason==='string'?decision.reason.slice(0,300):null});
+  const alternativeIndex=Number.isInteger(decision.alternativeIndex)&&decision.alternativeIndex!==choice&&state.actions[decision.alternativeIndex]?decision.alternativeIndex:null;
+  options.onDecision?.({actionIndex:choice,alternativeIndex,source:'model',reason:typeof decision.reason==='string'?decision.reason.slice(0,600):null});
   return choice;
 }

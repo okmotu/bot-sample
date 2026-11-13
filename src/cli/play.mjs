@@ -1,39 +1,43 @@
-import { setTimeout as delay } from 'node:timers/promises';
-import { ApiError,client } from '../game/client.mjs';
-import { loadSession,clearSession } from '../game/session.mjs';
-import { chooseAction } from '../strategies/baseline.mjs';
-import { chooseWithModel } from '../strategies/llm.mjs';
+import {readSession,clearSession} from '../game/session.mjs';
+import {runBot} from '../game/run.mjs';
+import {client,ApiError} from '../game/client.mjs';
+import {publicMetadata,syncMetadata} from '../game/metadata.mjs';
+import {Journal} from '../observer/journal.mjs';
+import {resolve} from 'node:path';
+import {randomUUID} from 'node:crypto';
 
-async function main() {
-  const api=client(await loadSession());
-  console.log('Бот подключён. Ожидаем запуска партии организатором. Ctrl+C — остановить; повторный запуск продолжит игру.');
-  let failures=0;
-  for(;;) {
-    try {
-      const state=await api.state();
-      if(state.actions.length) {
-        let actionIndex;
-        if(process.env.LLM_MODEL) {
-          try {actionIndex=await chooseWithModel(state);}
-          // A lost response may already be billed. Never retry the model implicitly.
-          catch {throw new Error('Ошибка модели. Агент остановлен без повторного запроса.');}
-        } else actionIndex=chooseAction(state);
-        if(!Number.isInteger(actionIndex) || !state.actions[actionIndex])throw new Error('Стратегия вернула недопустимый индекс действия.');
-        await api.act(state,actionIndex);
-        console.log(`Партия ${state.gameNumber}: ${state.actions[actionIndex].type}`);
-      }
-      failures=0;
-    } catch(error) {
-      if(error instanceof ApiError && [401,404].includes(error.status)) {
-        await clearSession();
-        console.log('Доступ завершён: партия закончилась, место удалено или управление возвращено человеку. Для новой партии нужно новое приглашение.');return;
-      }
-      if(error instanceof ApiError && error.status===409)continue; // Re-read, never replay an old action.
-      if(!(error instanceof ApiError) && error.name!=='TimeoutError' && error.name!=='TypeError')throw error;
-      if(++failures>=5)throw new Error('Не удалось связаться с игрой после 5 попыток. Сессия сохранена; попробуйте запустить снова.');
-      console.error('Нет ответа от игры. Повторим подключение.');
-    }
-    await delay(2000);
+async function main(){
+ const demo=process.argv.includes('--demo'),connectOnly=process.argv.includes('--connect-only');
+ if(demo&&connectOnly)throw new Error('Choose demo or connection setup.');
+ if(!process.stdin.isTTY||!process.stdout.isTTY){console.error('Запустите npm start в интерактивном терминале. Для внешнего агента используйте npm run mcp.');process.exitCode=1;return;}
+ // Load the UI before consuming a one-time invitation.
+ const ui=await import('../observer/tui.mjs');
+ const controller=new AbortController();let renderer;
+ try{
+  let session=demo?null:await readSession();
+  if(connectOnly&&session){
+   try{await client(session).state();}
+   catch(error){if(!(error instanceof ApiError)||![401,404].includes(error.status))throw error;await clearSession();session=null;}
   }
+  if(!demo&&!session){
+   renderer=await ui.createTuiRenderer();
+   session=await (await import('../observer/connect.mjs')).promptConnection(renderer);
+   if(!session)return;
+  }
+  if(connectOnly){
+   const api=client(session);
+   await syncMetadata(api,await api.state(),publicMetadata(process.env,null));
+   renderer?.destroy();renderer=null;
+   console.log('Подключение сохранено. Теперь можно запускать MCP-агента.');
+   return;
+  }
+  const journal=demo?(await import('../observer/demo.mjs')).demoJournal():new Journal({model:process.env.LLM_MODEL||null,room:session.code,secrets:[session.token,process.env.LLM_API_KEY]});
+  const options={onQuit:()=>controller.abort(),onExport:async()=>{const path=resolve(`bot-decisions-${Date.now()}-${randomUUID().slice(0,8)}.json`);await journal.export(path);return path;}};
+  if(renderer)ui.attachTui(renderer,journal,{...options,onQuit:()=>{controller.abort();renderer.destroy();}});
+  else renderer=await ui.openTui(journal,options);
+  const closed=new Promise(resolve=>renderer.once('destroy',()=>{controller.abort();resolve();}));
+  if(!demo){const result=await runBot(session,{journal,signal:controller.signal,clear:clearSession,log:()=>{}});if(result&&!controller.signal.aborted)process.exitCode=1;}
+  await closed;
+ }finally{renderer?.destroy();}
 }
-main().catch(()=>{console.error('Агент остановлен. Проверьте сервер, приглашение и стратегию. Секреты в журнал не выводятся.');process.exitCode=1;});
+main().catch(()=>{console.error('Бот остановлен. Проверьте окружение, сервер и приглашение. Нужны Node.js 26.4+, зависимости и запуск через npm start. Секреты в журнал не выводятся.');process.exitCode=1;});

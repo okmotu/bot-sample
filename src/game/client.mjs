@@ -1,4 +1,5 @@
 // No game rules or human-session credentials belong in this client.
+import {publicMetadata} from './metadata.mjs';
 export class ApiError extends Error {
   constructor(status, message) { super(message); this.status=status; }
 }
@@ -10,9 +11,9 @@ export function parseInvitation(text) {
   if(!match)throw new Error('Вставьте полную ссылку-приглашение, включая часть после #.');
   return {baseUrl:url.origin,code:match[1],invite:match[2]};
 }
-async function request(baseUrl, code, token, suffix='', data, transport=fetch) {
+async function request(baseUrl, code, token, suffix='', data, transport=fetch, method=data===undefined?'GET':'POST') {
   const response=await transport(`${baseUrl}/api/rooms/${code}/bot${suffix}`,{
-    method:data===undefined?'GET':'POST',redirect:'error',signal:AbortSignal.timeout(15000),
+    method,redirect:'error',signal:AbortSignal.timeout(15000),
     headers:{...(token?{Authorization:`Bearer ${token}`} : {}),'Content-Type':'application/json'},
     ...(data===undefined?{}:{body:JSON.stringify(data)}),
   });
@@ -20,15 +21,16 @@ async function request(baseUrl, code, token, suffix='', data, transport=fetch) {
   if(!response.ok)throw new ApiError(response.status,response.status===401?'Доступ завершён, истёк или отозван.':`Сервер ответил ${response.status}.`);
   return response.json();
 }
-export async function exchange(text, transport=fetch) {
+export async function exchange(text, transport=fetch, metadata=publicMetadata()) {
   const {baseUrl,code,invite}=parseInvitation(text);
-  const data=await request(baseUrl,code,null,'/exchange',{invite},transport);
+  const data=await request(baseUrl,code,null,'/exchange',{invite,harness:metadata.harness,model:metadata.model},transport);
   return {baseUrl,code,token:data.token,playerId:data.playerId};
 }
 export function client(session, transport=fetch) {
-  const send=(suffix,data)=>request(session.baseUrl,session.code,session.token,suffix,data,transport);
+  const send=(suffix,data,method)=>request(session.baseUrl,session.code,session.token,suffix,data,transport,method);
   return {
     state:()=>send(''),
+    updateMetadata:(state,{harness,model})=>send('',{version:state.version,gameNumber:state.gameNumber,harness,model},'PATCH'),
     act:(state,actionIndex)=>send('',{version:state.version,gameNumber:state.gameNumber,actionIndex}),
     say:(state,text,messageId=crypto.randomUUID())=>send('',{version:state.version,gameNumber:state.gameNumber,tradeId:state.game?.autoImport?.id,message:text,messageId}),
   };

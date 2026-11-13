@@ -13,6 +13,16 @@ test('model receives allowlisted public data, never game credentials; invalid ch
  await assert.rejects(chooseWithModel(state,{...options,transport:async()=>Response.json({choices:[{message:{content:'{"actionIndex":1000}'}}]})}),/invalid/);
 });
 
+test('alternative references stay within the current action list and cannot repeat the choice',async()=>{
+ const state={playerId:'p',actions:[{type:'pass'},{type:'buy',card:'wheat'}],catalog:[],landmarks:[],game:{phase:'buy',players:[],log:[]}};
+ for(const alternativeIndex of [0,1,-1,99,'1',null]){
+  let decision;
+  await chooseWithModel(state,{key:'test',model:'test',onDecision:d=>{decision=d;},transport:async()=>Response.json({choices:[{message:{content:JSON.stringify({actionIndex:0,alternativeIndex,reason:'Коплю на достопримечательность.'})}}]})});
+  assert.equal(decision.alternativeIndex,alternativeIndex===1?1:null);
+  assert.equal(decision.source,'model');
+ }
+});
+
 test('OpenRouter disables reasoning overhead and reports billed usage without secrets',async()=>{
  const state={playerId:'p',actions:[{type:'pass'}],catalog:[],landmarks:[],game:{phase:'buy',players:[],log:[]}};
  let usage;
@@ -23,7 +33,7 @@ test('OpenRouter disables reasoning overhead and reports billed usage without se
    assert.equal(body.max_tokens,500);
    return Response.json({choices:[{message:{content:'{"actionIndex":0}'}}],usage:{prompt_tokens:1234,completion_tokens:10,cost:0.001}});
  }});
- assert.equal(index,0);assert.deepEqual(usage,{promptTokens:1234,completionTokens:10,cost:0.001});
+ assert.equal(index,0);assert.deepEqual(usage,{promptTokens:1234,completionTokens:10,cachedTokens:null,cost:0.001});
 });
 
 test('all models receive the same rules, explicit action indices and round context',async()=>{
@@ -40,8 +50,8 @@ test('all models receive the same rules, explicit action indices and round conte
      assert.equal(body.response_format.json_schema.strict,true);
      assert.match(body.messages[0].content,/Blue: any player's turn/);
      assert.match(body.messages[0].content,/not a default recommendation/);
-     return Response.json({choices:[{message:{content:JSON.stringify({actionIndex:1,reason:'Развиваю доход.'})}}]});
+     return Response.json({choices:[{message:{content:JSON.stringify({actionIndex:1,alternativeIndex:0,reason:'Развиваю доход.'})}}]});
    }}),1);
-   assert.deepEqual(explanation,{actionIndex:1,reason:'Развиваю доход.'});
+   assert.deepEqual(explanation,{actionIndex:1,alternativeIndex:0,source:'model',reason:'Развиваю доход.'});
  }
 });

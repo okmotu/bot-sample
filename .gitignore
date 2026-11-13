@@ -4,3 +4,6 @@ node_modules/
 .aiyl-*.json*
 *.log
 .DS_Store
+
+# Local observer exports may contain private game choices
+bot-decisions-*.json

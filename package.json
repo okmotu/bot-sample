@@ -4,17 +4,19 @@
   "private": true,
   "type": "module",
   "engines": {
-    "node": ">=24"
+    "node": ">=26.4.0"
   },
   "scripts": {
-    "start": "node --env-file-if-exists=.env src/cli/play.mjs",
+    "start": "node --experimental-ffi --env-file-if-exists=.env src/cli/play.mjs",
     "test": "node --test --test-isolation=none tests/*.test.mjs",
-    "connect": "node src/cli/connect.mjs",
-    "mcp": "node src/cli/mcp.mjs"
+    "mcp": "node --env-file-if-exists=.env src/cli/mcp.mjs",
+    "test:tui": "node --experimental-ffi --test --test-isolation=none tests/tui*.test.mjs",
+    "demo": "node --experimental-ffi src/cli/play.mjs --demo"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "1.32.2",
-    "zod": "4.6.7"
+    "zod": "4.6.7",
+    "@opentui/core": "0.8.4"
   },
   "repository": {
     "type": "git",
