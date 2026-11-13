@@ -1,11 +1,13 @@
+import {coachPanel} from './coach.mjs';
 import {BoxRenderable,TextRenderable,ScrollBoxRenderable,createCliRenderer,StyledText,fg} from '@opentui/core';
 import {groupTurns,turnTitle} from './turns.mjs';
 import {viewContent,actionLabel,resultNames,phaseName,cardColors} from './views.mjs';
 
 const rich=spans=>new StyledText(spans.map(c=>fg(c.color||'#e1e4df')(c.text)));
-const parts=[['table','Стол'],['market','Рынок'],['debug','Отладка']];
+const parts=[['table','Стол'],['market','Рынок'],['debug','Отладка'],['coach','Советы']];
 const debugParts=[['actions','Действия'],['input','Вход JSON'],['prompt','Промпт'],['usage','Расход']];
 export function attachTui(renderer,journal,{onQuit=()=>renderer.destroy(),onExport=async()=>''}={}){
+ let chatting=false;
  let selected=journal.data.records.at(-1)?.id,note='',exporting=false,unread=0,first=true;
  const nodes=new Map(),groups=new Map();
  const root=new BoxRenderable(renderer,{id:'observer',width:'100%',height:'100%',flexDirection:'column',backgroundColor:'#151c22'});
@@ -22,7 +24,11 @@ export function attachTui(renderer,journal,{onQuit=()=>renderer.destroy(),onExpo
   function paint(){el.content=active?`[${title}]  `:` ${title}   `;el.fg=active?'#151c22':'#d3b775';el.bg=active?'#d3b775':hover?'#34433e':'#151c22';}
   paint();return {el,width:title.length+4,setActive:value=>{active=value;paint();}};
  }
- const newest=button('latest','↓ К последнему',()=>goLast());root.add(newest.el);root.add(footer);renderer.root.add(root);
+ const coach=coachPanel(renderer,journal,button);root.add(coach.panel);
+ function toggleCoach(){chatting=!chatting;feed.visible=!chatting;coach.setOpen(chatting);updateHeader();}
+ const bar=new BoxRenderable(renderer,{flexDirection:'row',height:1,flexShrink:0});
+ const newest=button('latest','↓ К последнему',()=>goLast());bar.add(newest.el);
+ bar.add(button('coach-toggle','c Тренер',toggleCoach).el);root.add(bar);root.add(footer);renderer.root.add(root);
  const rows=buttons=>{let n=1,x=0;for(const b of buttons){if(x&&x+b.width>renderer.width-4){n++;x=0;}x+=b.width;}return n;};
  function select(id){selected=id;for(const [key,node] of nodes)node.box.backgroundColor=key===id?'#202e2b':'#151c22';}
  function goLast(){select(journal.data.records.at(-1)?.id);const node=nodes.get(selected);if(node){node.group.collapsed=false;paintGroup(node.group);}unread=0;feed.scrollTo(Infinity);updateHeader();}
@@ -31,7 +37,7 @@ export function attachTui(renderer,journal,{onQuit=()=>renderer.destroy(),onExpo
   const text=`${s.demo?'ДЕМО · ':''}BOT SAMPLE · ${s.room||'локально'} · ${s.model||'JavaScript'}\n${s.records.length} решений · ${t.requests} запросов · $${t.cost.toFixed(4)}${t.unknownCost?' + неизвестная стоимость':''} · ${s.message}`;
   header.content=text;header.height=text.split('\n').reduce((n,l)=>n+Math.max(1,Math.ceil(l.length/Math.max(1,renderer.width))),0);
   newest.el.content=unread?` ↓ ${unread} новых решений · f `:' ↓ К последнему · f ';newest.el.width=unread?34:22;
-  footer.content=note||'↑↓ решение · Space свернуть ход · Home/End · колесо\n1 Стол · 2 Рынок · 3 Отладка · d раздел · e экспорт · q выход';
+  footer.content=chatting?'Приватный чат · текст сохраняется только до выхода\nEnter отправить · Esc лента · Ctrl+C выход':note||'↑↓ решение · Space свернуть ход · Home/End · колесо\n1 Стол · 2 Рынок · 3 Отладка · 4 Советы · c Тренер · d раздел · e экспорт · q выход';
   footer.height=renderer.width<70?3:2;
  }
  function toggle(node,kind){
@@ -72,6 +78,7 @@ export function attachTui(renderer,journal,{onQuit=()=>renderer.destroy(),onExpo
   const mode=r.source==='model'?'Модель':r.source==='strategy'?'JavaScript-стратегия':r.requested?'Модель':'Источник пока не определён';
   const spans=[{text:`#${r.id} · ${phaseName(r.phase)} · `,color:'#98aaa7'},{text:actionLabel(a,r.input)+'\n',color:cardColors[c?.color]||'#e6c671'},
    {text:(r.selection?.reason||(r.selection?'Стратегия не предоставила объяснение.':'Ожидаем решение…'))+'\n'}];
+  if(r.input.coach?.length)spans.push({text:'Тренер: '+r.input.coach.map(m=>`#${m.id}`).join(', ')+'\n',color:'#c3b1db'});
   if(r.selection?.alternative)spans.push({text:`Альтернатива: ${actionLabel(r.selection.alternative,r.input)}\n`,color:'#b3c5a4'});
   spans.push({text:`${resultNames[r.status]||r.status}${r.result?.httpStatus?' · HTTP '+r.result.httpStatus:''} · ${mode}${r.requested?' · '+(r.usage?.cost==null?'стоимость н/д':'$'+r.usage.cost.toFixed(4)):''}`,color:['rejected','unknown','model-error'].includes(r.status)?'#ff9586':'#98aaa7'});
   node.summary.content=rich(spans);node.controls.height=rows(node.buttons);
@@ -80,7 +87,7 @@ export function attachTui(renderer,journal,{onQuit=()=>renderer.destroy(),onExpo
   node.debugButtons.forEach((b,i)=>b.setActive(node.debug===debugParts[i][0]));
   if(node.open){
    const usage=node.open==='debug'&&node.debug==='usage';
-   node.detail.content=usage?`Расход решения #${r.id}\n${r.requested?'Вход '+(r.usage?.promptTokens??'н/д')+' · кеш '+(r.usage?.cachedTokens??'н/д')+' · выход '+(r.usage?.completionTokens??'н/д'):'Запроса к модели не было.'}\n${r.result?'Время: '+((r.result.at-r.at)/1000).toFixed(1)+' с':''}\nОбъяснение — ответ модели, а не её внутренний ход мыслей.`:rich(viewContent(r,node.open,{debug:node.debug,width:Math.max(1,renderer.width-4)}));
+   node.detail.content=node.open==='coach'?(r.input.coach?.map(m=>`[${m.id}] ${m.text}`).join('\n\n')||'Это решение принято без подсказок тренера.'):usage?`Расход решения #${r.id}\n${r.requested?'Вход '+(r.usage?.promptTokens??'н/д')+' · кеш '+(r.usage?.cachedTokens??'н/д')+' · выход '+(r.usage?.completionTokens??'н/д'):'Запроса к модели не было.'}\n${r.result?'Время: '+((r.result.at-r.at)/1000).toFixed(1)+' с':''}\nОбъяснение — ответ модели, а не её внутренний ход мыслей.`:rich(viewContent(r,node.open,{debug:node.debug,width:Math.max(1,renderer.width-4)}));
   }
   node.box.backgroundColor=node.id===selected?'#202e2b':'#151c22';
  }
@@ -97,9 +104,16 @@ export function attachTui(renderer,journal,{onQuit=()=>renderer.destroy(),onExpo
   const groupIds=new Set(grouped.map(g=>g.id));for(const [id,group] of groups)if(!groupIds.has(id)){feed.remove(group.box);group.box.destroyRecursively();groups.delete(id);}
   if(!ids.has(selected))selected=records.at(-1)?.id;
   if(first||bottom){select(records.at(-1)?.id);unread=0;if(first||added)feed.scrollTo(Infinity);}else unread+=added;
-  first=false;updateHeader();
+  first=false;updateHeader();coach.update();
  }
  const key=async k=>{
+  if(k.name==='c'&&k.ctrl){k.preventDefault();onQuit();return;}
+  if(chatting){
+   if(k.name==='escape'){k.preventDefault();toggleCoach();}
+   else if(k.name==='pageup'||k.name==='pagedown'){k.preventDefault();coach.scroll(k.name==='pageup'?-1:1);}
+   return;
+  }
+  if(k.name==='c'){k.preventDefault();toggleCoach();return;}
   const records=journal.data.records,index=records.findIndex(r=>r.id===selected);
   if(k.name==='q'||k.name==='c'&&k.ctrl){onQuit();return;}
   if(k.name==='up'||k.name==='down'){
@@ -109,7 +123,7 @@ export function attachTui(renderer,journal,{onQuit=()=>renderer.destroy(),onExpo
   else if(k.name==='space'){const node=nodes.get(selected);if(node)toggleGroup(node.group);}
   else if(k.name==='end'||k.name==='f'){goLast();}
   else if(k.name==='pageup'||k.name==='pagedown')feed.scrollBy(k.name==='pageup'?-1:1,'viewport');
-  else if(/^[1-3]$/.test(k.name)){const node=nodes.get(selected);if(node)toggle(node,parts[Number(k.name)-1][0]);}
+  else if(/^[1-4]$/.test(k.name)){const node=nodes.get(selected);if(node)toggle(node,parts[Number(k.name)-1][0]);}
   else if(k.name==='d'){const node=nodes.get(selected);if(node?.open==='debug'){node.debug=debugParts[(debugParts.findIndex(p=>p[0]===node.debug)+1)%debugParts.length][0];paint(node);}}
   else if(k.name==='e'&&!exporting){exporting=true;try{note='Сохранено: '+await onExport();}catch{note='Не удалось сохранить журнал.';}finally{exporting=false;}}
   else return;

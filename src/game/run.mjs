@@ -20,11 +20,12 @@ export async function runBot(session,{api=client(session),model=process.env.LLM_
    if(state.game?.phase==='finished'){journal?.status('ended','Партия завершена');return;}
    if(state.actions.length){
     journal?.status('running',model?'Модель выбирает действие…':'Стратегия выбирает действие…');
-    id=journal?.begin(state,modelInput(state),model?SYSTEM_PROMPT:'');
+    const coach=model?(journal?.coachContext()??[]):[];
+    id=journal?.begin(state,modelInput(state,coach),model?SYSTEM_PROMPT:'');
     let actionIndex;
     if(model){
      journal?.request(id);
-     try{actionIndex=await choose(state,{model,signal,onUsage:u=>journal?.usage(id,u),onDecision:d=>journal?.choose(id,d)});}
+     try{actionIndex=await choose(state,{model,signal,coach,onUsage:u=>journal?.usage(id,u),onDecision:d=>journal?.choose(id,d)});}
      catch{journal?.result(id,signal?.aborted?'cancelled':'model-error');journal?.status(signal?.aborted?'stopped':'error',signal?.aborted?'Бот остановлен':'Ошибка модели. Повторного запроса не было.');return 'model-error';}
     }else{actionIndex=chooseAction(state);journal?.choose(id,{actionIndex,reason:null,source:'strategy'});}
     if(signal?.aborted){journal?.result(id,'cancelled');return;}

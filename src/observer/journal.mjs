@@ -21,10 +21,26 @@ function safeCopy(value,secrets){
 }
 export class Journal extends EventEmitter {
  constructor({model=null,room=null,limit=200,secrets=[],demo=false}={}){
-  super();this.limit=limit;this.secrets=secrets;this.data={model:model?safeText(model,secrets):null,room:room?safeText(room,secrets):null,demo,status:'connecting',message:'Подключение',records:[],latest:null,totals:{requests:0,cost:0,unknownCost:0,promptTokens:0,completionTokens:0,cachedTokens:0,unknownTokens:0},dropped:0};this.nextId=1;
+  super();this.limit=limit;this.secrets=secrets;this.data={model:model?safeText(model,secrets):null,room:room?safeText(room,secrets):null,demo,status:'connecting',message:'Подключение',records:[],latest:null,totals:{requests:0,cost:0,unknownCost:0,promptTokens:0,completionTokens:0,cachedTokens:0,unknownTokens:0},dropped:0,coach:[]};this.nextId=1;this.nextCoachId=1;
  }
+ coachContext(){return this.data.coach.filter(m=>!m.cancelled).map(({id,text})=>({id,text}));}
+ coachSend(value){
+  if(!this.data.model)throw new Error('Подсказки доступны только с LLM.');
+  if(['ended','error','stopped'].includes(this.data.status))throw new Error('Бот остановлен. Новых решений не будет.');
+  const text=safeText(value,this.secrets).trim();
+  if(!text)throw new Error('Введите подсказку.');
+  if(text.length>1000)throw new Error('Подсказка — до 1000 символов.');
+  if(this.coachContext().length>=20)throw new Error('Уже 20 активных подсказок. Отмените ненужные.');
+  const message={id:this.nextCoachId++,text,at:Date.now(),cancelled:false};
+  this.data.coach.push(message);
+  if(this.data.coach.length>100)this.data.coach.splice(this.data.coach.findIndex(m=>m.cancelled),1);
+  this.emit('change');return message.id;
+ }
+ coachCancel(id){const message=this.data.coach.find(m=>m.id===id);if(message){message.cancelled=true;this.emit('change');}}
  status(status,message){this.data.status=status;this.data.message=safeText(message,this.secrets);this.emit('change');}
  observe(state){
+  if(this.coachGame!==undefined && this.coachGame!==state.gameNumber)this.data.coach=[];
+  this.coachGame=state.gameNumber;
   if(this.data.latest?.version===state.version&&this.data.latest?.gameNumber===state.gameNumber)return;
   this.data.latest={version:state.version,gameNumber:state.gameNumber,phase:state.game?.phase??'lobby'};
   const last=this.data.records.at(-1);

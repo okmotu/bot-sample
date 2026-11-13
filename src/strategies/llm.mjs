@@ -1,14 +1,14 @@
 // Optional BYOK strategy. Only the public game projection goes to the model.
 import { SYSTEM_PROMPT } from '../prompts/system.mjs';
 import {usageMetrics} from '../observer/journal.mjs';
-export function modelInput(state) {
+export function modelInput(state, coach=[]) {
   const {game,playerId,actions,catalog,landmarks}=state;
   return {playerId,actions:actions.map((action,actionIndex)=>({actionIndex,...action})),catalog:catalog.map(({art,...card})=>card),landmarks,
     game:{phase:game.phase,current:game.current,players:game.players,market:game.market,
       dice:game.dice,total:game.total,mode:game.mode,greenBoost:game.greenBoost,subsidies:game.subsidies,
       marketState:game.marketState,extraTurn:game.extraTurn,
       autoImport:game.autoImport,startingChoices:game.startingChoices,pendingEffects:game.pendingEffects,
-      recentLog:game.log.slice(-12)}};
+      recentLog:game.log.slice(-12)},...(coach.length?{coach:structuredClone(coach)}:{})};
 }
 export async function chooseWithModel(state, options={}) {
   const key=options.key ?? process.env.LLM_API_KEY;
@@ -23,7 +23,7 @@ export async function chooseWithModel(state, options={}) {
     body:JSON.stringify({model,response_format:{type:'json_schema',json_schema:{name:'game_decision',strict:true,schema:{type:'object',properties:{actionIndex:{type:'integer'},alternativeIndex:{type:['integer','null']},reason:{type:'string'}},required:['actionIndex','alternativeIndex','reason'],additionalProperties:false}}},...(base.hostname==='openrouter.ai'?{max_tokens:500}:{max_completion_tokens:500}),
       ...(base.hostname==='openrouter.ai' ? {reasoning:{enabled:false},provider:{data_collection:'deny',require_parameters:true}} : {}),
       messages:[{role:'system',content:SYSTEM_PROMPT},
-        {role:'user',content:JSON.stringify(modelInput(state))}]})});
+        {role:'user',content:JSON.stringify(modelInput(state,options.coach))}]})});
   if(!response.ok)throw new Error(`LLM request failed (HTTP ${response.status}).`);
   const data=await response.json();
   options.onUsage?.(usageMetrics({promptTokens:data.usage?.prompt_tokens,completionTokens:data.usage?.completion_tokens,cachedTokens:data.usage?.prompt_tokens_details?.cached_tokens,cost:data.usage?.cost}));
